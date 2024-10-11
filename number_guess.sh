@@ -18,15 +18,7 @@ check_user() {
   fi
 }
 
-# 函数：检查输入是否为整数
-is_integer() {
-  local re='^[-+]?[0-9]+$'
-  if [[ $1 =~ $re ]]; then
-    return 0 # 是整数
-  else
-    return 1 # 不是整数
-  fi
-}
+
 
 # 主游戏循环
 while true; do
@@ -41,10 +33,7 @@ while true; do
 
   while true; do
     read -r user_guess
-    if ! is_integer "$user_guess"; then
-      echo "That is not an integer, guess again:"
-      continue
-    fi
+
 
     ((number_of_guesses++))
     if [[ $user_guess -eq $secret_number ]]; then
