@@ -1,34 +1,44 @@
 #!/bin/bash
 
-# Function to check if the username exists in the database and retrieve games played and best game
+# 定义 PostgreSQL 连接变量
+PSQL="psql --username=freecodecamp --dbname=number_guess"
+
+# 函数：检查用户名是否存在，并获取游戏次数和最佳成绩
 check_user() {
-  PSQL="psql --username=freecodecamp --dbname=number_guess -t --no-align -c"
-  games_played=$($PSQL "SELECT COUNT(*) FROM guesses WHERE username = '$username';")
-  best_game=$($PSQL "SELECT MIN(guesses) FROM (SELECT guess FROM guesses WHERE username = '$username' GROUP BY guess) AS subquery;")
-  if [[ $games_played -gt 0 ]]; then
+  local username=$1
+  games_played=$($PSQL -t --no-align -c "SELECT COUNT(*) FROM games WHERE user_id IN (SELECT user_id FROM users WHERE username = '$username');")
+  best_game=$($PSQL -t --no-align -c "SELECT MIN(guess_count) FROM games WHERE user_id IN (SELECT user_id FROM users WHERE username = '$username');")
+
+  if [ "$games_played" -gt 0 ]; then
     echo "Welcome back, $username! You have played $games_played games, and your best game took $best_game guesses."
   else
     echo "Welcome, $username! It looks like this is your first time here."
+    # 如果是新用户，插入到 users 表
+    $PSQL -c "INSERT INTO users (username) VALUES ('$username');"
   fi
 }
 
-# Function to validate if the input is an integer
+# 函数：检查输入是否为整数
 is_integer() {
   local re='^[-+]?[0-9]+$'
   if [[ $1 =~ $re ]]; then
-    return 0 # return true
+    return 0 # 是整数
   else
-    return 1 # return false
+    return 1 # 不是整数
   fi
 }
 
-# Function to check the user's guess
-check_guess() {
-  local secret_number=$(( RANDOM % 1000 + 1 ))
-  local number_of_guesses=0
-  local user_guess
+# 主游戏循环
+while true; do
+  read -p "Enter your username: " username
+  check_user "$username"
+
+  # 生成随机数
+  secret_number=$(( RANDOM % 1000 + 1 ))
+  number_of_guesses=0
 
   echo "Guess the secret number between 1 and 1000:"
+
   while true; do
     read -r user_guess
     if ! is_integer "$user_guess"; then
@@ -39,8 +49,10 @@ check_guess() {
     ((number_of_guesses++))
     if [[ $user_guess -eq $secret_number ]]; then
       echo "You guessed it in $number_of_guesses tries. The secret number was $secret_number. Nice job!"
-      # Update the database with the new game
-      $PSQL "INSERT INTO games (username, guesses) VALUES ('$username', $number_of_guesses);"
+      # 获取 user_id
+      user_id=$($PSQL -t --no-align -c "SELECT user_id FROM users WHERE username = '$username';")
+      # 插入游戏记录到 games 表
+      $PSQL -c "INSERT INTO games (user_id, guess_count) VALUES ($user_id, $number_of_guesses);"
       break
     elif [[ $user_guess -lt $secret_number ]]; then
       echo "It's higher than that, guess again:"
@@ -48,33 +60,8 @@ check_guess() {
       echo "It's lower than that, guess again:"
     fi
   done
-}
 
-# Main game loop
-while true; do
-  read -p "Enter your username: " username
-  # Create the database if it doesn't exist
-  if ! psql --username=freecodecamp --dbname=postgres -t --no-align -c "SELECT 1 FROM pg_database WHERE datname = 'number_guess'" | grep -q 1; then
-    psql --username=freecodecamp --dbname=postgres -c "CREATE DATABASE number_guess;"
-  fi
-
-  # Create the table if it doesn't exist
-  PSQL="psql --username=freecodecamp --dbname=number_guess -t --no-align -c"
-  if ! $PSQL "SELECT 1 FROM pg_tables WHERE tablename = 'guesses'" | grep -q 1; then
-    $PSQL "CREATE TABLE guesses (id SERIAL PRIMARY KEY, username VARCHAR(22), guess INT);"
-  fi
-
-  if ! $PSQL "SELECT 1 FROM pg_tables WHERE tablename = 'games'" | grep -q 1; then
-    $PSQL "CREATE TABLE games (id SERIAL PRIMARY KEY, username VARCHAR(22), guesses INT);"
-  fi
-
-  # Check if the username exists and print the appropriate welcome message
-  check_user
-
-  # Start the guessing game
-  check_guess
-
-  read -p "Do you want to play again? (y/n) " play_again
+  read -p "Do you want to play again? (y/n): " play_again
   if [[ $play_again != "y" ]]; then
     break
   fi
